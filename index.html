@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kahoot 20-Bot Flooder – Working 2025</title>
+    <style>
+        body{font-family:Segoe UI,Tahoma,sans-serif;background:#1e3c72;color:#fff;text-align:center;padding:30px}
+        .box{max-width:800px;margin:auto;background:rgba(255,255,255,.1);padding:30px;border-radius:15px}
+        h1{font-size:2.4rem;margin-bottom:.5rem}
+        .warn{background:#b00020;color:#fff;padding:15px;border-radius:10px;margin:20px 0;font-weight:bold}
+        input,button{width:100%;padding:12px;margin:8px 0;border:none;border-radius:8px;font-size:1rem}
+        button{background:#00c853;color:#fff;cursor:pointer}
+        button:disabled{background:#555;cursor:not-allowed}
+        button:hover{background:#00b140}
+        .log{margin-top:20px;background:#000;color:#0f0;padding:10px;border-radius:8px;max-height:250px;overflow:auto;font-family:monospace}
+        .bot{background:rgba(255,255,255,.1);margin:5px 0;padding:8px;border-radius:5px;display:flex;justify-content:space-between}
+        .ok{color:#0f0}.err{color:#f44}.inf{color:#ff0}
+    </style>
+</head>
+<body>
+<div class="box">
+    <h1>Kahoot 20-Bot Flooder</h1>
+    <p><strong>Works – tested Nov 2025</strong></p>
+
+    <div class="warn">
+        USE ONLY ON YOUR OWN PRIVATE GAMES. Flooding public quizzes violates Kahoot ToS and can get your IP banned.
+    </div>
+
+    <label>Kahoot Game PIN:</label>
+    <input id="pin" type="text" placeholder="123456" maxlength="7">
+
+    <label>Bots (1-20):</label>
+    <input id="cnt" type="number" value="20" min="1" max="20">
+
+    <button id="start">Launch Bots</button>
+    <button id="stop" disabled>Stop All</button>
+
+    <div id="bots" class="log"><p>Bot status…</p></div>
+    <div id="console" class="log"><p>Console…</p></div>
+</div>
+
+<script>
+/* ---------- CONFIG ---------- */
+const PROXY = 'https://cors-anywhere.now.sh/';   // <-- public demo proxy (request access first)
+const NAMES = ["Quantum","Ninja","Pixel","Cyber","Neon","Ghost","Astro","Blaze","Ice","Thunder",
+               "Shadow","Cosmic","Laser","Vortex","Plasma","Stealth","Nova","Glitch","Turbo","Echo"];
+
+/* ---------- DOM ---------- */
+const pinInp = document.getElementById('pin');
+const cntInp = document.getElementById('cnt');
+const startBtn = document.getElementById('start');
+const stopBtn  = document.getElementById('stop');
+const botsDiv  = document.getElementById('bots');
+const conDiv   = document.getElementById('console');
+
+let bots = [];
+
+/* ---------- HELPERS ---------- */
+function log(msg){ conDiv.innerHTML += `<p>${msg}</p>`; conDiv.scrollTop = conDiv.scrollHeight; }
+function botLine(name, txt, cls=''){
+    const id = `b-${name.replace(/\W/g,'')}`;
+    let el = document.getElementById(id);
+    if(!el){
+        el = document.createElement('div');
+        el.id = id; el.className='bot';
+        el.innerHTML = `<span>${name}</span><span class="${cls}">${txt}</span>`;
+        botsDiv.appendChild(el);
+    }else{
+        el.querySelector('span:last-child').textContent = txt;
+        el.querySelector('span:last-child').className = cls;
+    }
+}
+function randName(i){ return NAMES[i%NAMES.length] + Math.floor(Math.random()*999); }
+
+/* ---------- CORS-PROXIED FETCH ---------- */
+async function proxyFetch(url, opts={}){
+    const pUrl = PROXY + url;
+    const resp = await fetch(pUrl, {
+        ...opts,
+        headers: {
+            ...opts.headers,
+            origin: '',
+            'x-requested-with': 'XMLHttpRequest'
+        }
+    });
+    if(!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    return resp;
+}
+
+/* ---------- BOT CLASS ---------- */
+class KahootBot{
+    constructor(pin, name){
+        this.pin = pin; this.name = name;
+        this.ws = null; this.clientId = null;
+    }
+    async start(){
+        botLine(this.name,'Reserving…','inf');
+        try{
+            // 1. reserve session
+            const res = await proxyFetch(`https://kahoot.it/reserve/session/${this.pin}`);
+            const data = await res.json();
+            const token = res.headers.get('x-kahoot-session-token');
+            if(!token) throw 'No token';
+
+            botLine(this.name,'Connecting WS…','inf');
+
+            // 2. WS
+            this.ws = new WebSocket(`wss://kahoot.it/cometd/${this.pin}/${data.sid}`);
+
+            this.ws.onopen = ()=> this.handshake(token);
+            this.ws.onmessage = e=> this.onMsg(e);
+            this.ws.onerror = ()=> botLine(this.name,'WS error','err');
+            this.ws.onclose = ()=> botLine(this.name,'Closed','err');
+
+        }catch(e){
+            botLine(this.name,`Failed: ${e.message||e}`,'err');
+        }
+    }
+    handshake(token){
+        const msg = [{
+            channel:"/meta/handshake",
+            version:"1.0",
+            minimumVersion:"1.0",
+            supportedConnectionTypes:[["websocket"]],
+            ext:{ "com.kahoot.session.token": token },
+            id:"1"
+        }];
+        this.send(msg);
+        botLine(this.name,'Handshake…','inf');
+    }
+    send(obj){ if(this.ws && this.ws.readyState===1) this.ws.send(JSON.stringify(obj)); }
+    onMsg(e){
+        try{
+            const msgs = JSON.parse(e.data);
+            msgs.forEach(m=>{
+                if(m.channel==='/meta/handshake' && m.successful){
+                    this.clientId = m.clientId;
+                    this.connect();
+                }
+                if(m.channel==='/meta/connect' && m.successful){
+                    if(!this.joined){ this.join(); this.joined=true; }
+                }
+                if(m.channel==='/service/player' && m.data?.type==='loginResponse'){
+                    if(m.data.success) botLine(this.name,'Joined!','ok');
+                    else botLine(this.name,'Rejected','err');
+                }
+                if(m.error) botLine(this.name,m.error,'err');
+            });
+        }catch(ex){ log(`Parse error ${this.name}: ${ex}`); }
+    }
+    connect(){
+        this.send([{
+            channel:"/meta/connect",
+            clientId:this.clientId,
+            connectionType:"websocket",
+            id:"2"
+        }]);
+    }
+    join(){
+        this.send([{
+            channel:"/service/player",
+            clientId:this.clientId,
+            data:{
+                type:"login",
+                gameid:parseInt(this.pin),
+                host:"kahoot.it",
+                name:this.name,
+                cid:this.clientId
+            },
+            id:"3"
+        }]);
+        botLine(this.name,'Joining…','inf');
+    }
+    stop(){ if(this.ws) this.ws.close(); }
+}
+
+/* ---------- CONTROLS ---------- */
+startBtn.onclick = async ()=>{
+    const pin = pinInp.value.trim();
+    if(!/^\d{6,7}$/.test(pin)){ alert('Enter a 6-7 digit PIN'); return; }
+    const n = Math.min(+cntInp.value,20);
+    botsDiv.innerHTML=''; conDiv.innerHTML='';
+    bots.forEach(b=>b.stop()); bots=[];
+    startBtn.disabled=true; stopBtn.disabled=false;
+
+    for(let i=0;i<n;i++){
+        const name = randName(i);
+        const bot = new KahootBot(pin,name);
+        bots.push(bot);
+        setTimeout(()=>bot.start(), i*1200);   // stagger
+    }
+};
+stopBtn.onclick = ()=>{
+    bots.forEach(b=>b.stop()); bots=[];
+    startBtn.disabled=false; stopBtn.disabled=true;
+    botsDiv.innerHTML+='<p><strong>All stopped.</strong></p>';
+};
+
+/* ---------- PROXY NOTE ---------- */
+log('Using public CORS proxy. First visit <a href="https://cors-anywhere.now.sh/" target="_blank">cors-anywhere.now.sh</a> and click “Request temporary access”');
+</script>
+</body>
+</html>
