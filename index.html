@@ -2,237 +2,149 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kahoot 20-Bot Flooder – 2025 Working</title>
+    <title>File Receiver – GitHub Pages</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
-        body {font-family: system-ui; background: #000; color: #0f0; text-align: center; padding: 20px;}
-        .box {max-width: 700px; margin: auto; background: #111; padding: 30px; border-radius: 16px; border: 2px solid #0f0;}
-        h1 {font-size: 2.2rem; text-shadow: 0 0 10px #0f0;}
-        .warn {background: #300; padding: 15px; border-radius: 10px; margin: 20px 0; border: 1px solid #f00;}
-        input, button {width: 100%; padding: 14px; margin: 10px 0; border: 1px solid #0f0; border-radius: 10px; background: #000; color: #0f0; font-size: 1.1rem;}
-        button {background: #0a0; font-weight: bold;}
-        button:disabled {background: #333;}
-        button:hover:not(:disabled) {background: #0c0;}
-        .log {margin-top: 20px; background: #000; color: #0f0; padding: 15px; border-radius: 10px; max-height: 300px; overflow: auto; font-family: monospace; text-align: left; border: 1px solid #0f0;}
-        .bot {background: #001a00; margin: 5px 0; padding: 10px; border-radius: 8px; border: 1px solid #0f0;}
-        .ok {color: #0f0;} .err {color: #f55;} .inf {color: #ff0;}
-        .tip {background: #022; padding: 10px; border-radius: 8px; margin: 10px 0; border: 1px solid #ff0;}
+        body {font-family: system-ui, sans-serif; margin: 2rem; background:#f9f9fb; color:#222;}
+        h1 {margin-bottom: .5rem;}
+        #dropzone {
+            border: 3px dashed #777;
+            border-radius: 12px;
+            padding: 2rem;
+            text-align: center;
+            background: #fff;
+            transition: background .2s;
+        }
+        #dropzone.dragover {background:#e1f5fe; border-color:#2196f3;}
+        #output {margin-top: 2rem;}
+        .file {margin: .5rem 0; padding: .75rem; background:#fff; border-radius:8px; box-shadow:0 1px 3px rgba(0,0,0,.1);}
+        .file img, .file pre {max-width:100%; margin-top:.5rem;}
+        .error {color:#b00020;}
     </style>
 </head>
 <body>
-<div class="box">
-    <h1>KAHOOT 20-BOT FLOODER</h1>
-    <p><strong>Updated for Nov 2025 – Real API</strong></p>
 
-    <div class="warn">
-        PRIVATE GAMES ONLY. PUBLIC = BAN.
-    </div>
+<h1>File Receiver</h1>
+<p>POST files to this page from anywhere, or drag-and-drop them here.</p>
 
-    <div class="tip">
-        💡 Create fresh PIN: <a href="https://kahoot.it" style="color:#ff0;">kahoot.it</a> → New Quiz → Start.
-    </div>
-
-    <input id="pin" placeholder="LIVE PIN (e.g. 123456)" maxlength="7">
-    <input id="count" type="number" value="20" min="1" max="20">
-    <button id="start">LAUNCH BOTS</button>
-    <button id="stop" disabled>STOP</button>
-
-    <div id="bots" class="log"><p>Bots status...</p></div>
+<div id="dropzone">
+    Drop files here or <label><input type="file" id="fileInput" multiple style="display:none;">click to select</label>
 </div>
 
+<div id="output"></div>
+
 <script>
-const pinInput = document.getElementById('pin');
-const countInput = document.getElementById('count');
-const startBtn = document.getElementById('start');
-const stopBtn = document.getElementById('stop');
-const botsDiv = document.getElementById('bots');
-
-let bots = [];
-
-// Stable 2025 CORS proxy for reserve (bypasses blocks)
-const PROXY = 'https://api.allorigins.win/raw?url=';
-
-function log(msg) {
-    const time = new Date().toLocaleTimeString();
-    botsDiv.innerHTML += `<p>[${time}] ${msg}</p>`;
-    botsDiv.scrollTop = botsDiv.scrollHeight;
+/* -------------------------------------------------------------
+   1. Handle direct <form> POSTs (multipart/form-data)
+   ------------------------------------------------------------- */
+async function handleFormPost(event) {
+    event.preventDefault();               // stop normal navigation
+    const formData = new FormData(event.target);
+    await displayFiles(formData);
 }
 
-function updateBot(name, status, color = '') {
-    const id = `bot-${name}`;
-    let el = document.getElementById(id);
-    if (!el) {
-        el = document.createElement('div');
-        el.id = id; el.className = 'bot';
-        el.innerHTML = `<strong>${name}</strong>: <span class="${color}">${status}</span>`;
-        botsDiv.appendChild(el);
-    } else {
-        el.querySelector('span').textContent = status;
-        el.querySelector('span').className = color;
-    }
-}
+/* -------------------------------------------------------------
+   2. Handle drag-and-drop or file-input selection
+   ------------------------------------------------------------- */
+const dropzone   = document.getElementById('dropzone');
+const fileInput  = document.getElementById('fileInput');
+const output     = document.getElementById('output');
 
-function randomName() {
-    const names = ['Alpha','Beta','Gamma','Delta','Echo','Fox','Golf','Hotel','India','Juliet'];
-    return names[Math.floor(Math.random() * names.length)] + Math.floor(Math.random() * 999);
-}
+dropzone.addEventListener('click', () => fileInput.click());
 
-// Reserve session with real token
-async function getSession(pin) {
-    const url = encodeURIComponent(`https://kahoot.it/reserve/session/${pin}`);
-    const proxyUrl = PROXY + url;
-    log(`Reserving session via proxy...`);
-    const res = await fetch(proxyUrl);
-    if (!res.ok) throw new Error(`Reserve failed: ${res.status}`);
-    const token = res.headers.get('x-kahoot-session-token');
-    const data = await res.json();
-    if (!token || !data.sid) throw new Error('Invalid token/sid');
-    log(`Session OK: Token=${token.slice(0,10)}... SID=${data.sid.slice(0,10)}...`);
-    return { token, sid: data.sid };
-}
+fileInput.addEventListener('change', () => {
+    const dt = new DataTransfer();
+    for (const f of fileInput.files) dt.items.add(f);
+    displayFiles(dt.files);
+});
 
-// Bot join via WebSocket (real protocol)
-class Bot {
-    constructor(pin, name, token, sid) {
-        this.pin = pin;
-        this.name = name;
-        this.token = token;
-        this.sid = sid;
-        this.ws = null;
-    }
+['dragover', 'dragenter'].forEach(ev => {
+    dropzone.addEventListener(ev, e => {
+        e.preventDefault();
+        dropzone.classList.add('dragover');
+    });
+});
+['dragleave', 'dragend', 'drop'].forEach(ev => {
+    dropzone.addEventListener(ev, e => {
+        e.preventDefault();
+        dropzone.classList.remove('dragover');
+    });
+});
+dropzone.addEventListener('drop', e => {
+    e.preventDefault();
+    displayFiles(e.dataTransfer.files);
+});
 
-    async start() {
-        updateBot(this.name, 'Reserving...', 'inf');
+/* -------------------------------------------------------------
+   3. Core: read and render each file
+   ------------------------------------------------------------- */
+async function displayFiles(source) {
+    output.innerHTML = '';               // clear previous results
+
+    // source can be FileList or FormData
+    const files = source instanceof FormData ? Array.from(source.values()) : Array.from(source);
+
+    for (const file of files) {
+        const div = document.createElement('div');
+        div.className = 'file';
+
+        const name = document.createElement('strong');
+        name.textContent = file.name || file.fieldName || 'unknown';
+        div.appendChild(name);
+
         try {
-            const { token, sid } = await getSession(this.pin); // Shared reserve for simplicity
-            this.token = token;
-            this.sid = sid;
-            this.connectWS();
-        } catch (e) {
-            updateBot(this.name, `Reserve fail: ${e.message}`, 'err');
-            log(`Error for ${this.name}: ${e.message}`);
-        }
-    }
-
-    connectWS() {
-        const url = `wss://kahoot.it/cometd/${this.pin}/${this.sid}`;
-        this.ws = new WebSocket(url);
-
-        this.ws.onopen = () => {
-            log(`${this.name}: WS open`);
-            this.handshake();
-        };
-
-        this.ws.onmessage = (e) => this.onMessage(e);
-
-        this.ws.onclose = (e) => {
-            log(`${this.name}: Closed ${e.code}`);
-            if (e.code === 1006) {
-                setTimeout(() => this.connectWS(), 2000); // Retry
+            if (file.type.startsWith('image/')) {
+                const img = document.createElement('img');
+                img.src = URL.createObjectURL(file);
+                div.appendChild(img);
+            } else if (file.type === 'application/json' || file.name.endsWith('.json')) {
+                const txt = await file.text();
+                const pre = document.createElement('pre');
+                pre.textContent = JSON.stringify(JSON.parse(txt), null, 2);
+                div.appendChild(pre);
+            } else {
+                // treat everything else as plain text
+                const txt = await file.text();
+                const pre = document.createElement('pre');
+                pre.textContent = txt;
+                div.appendChild(pre);
             }
-        };
+        } catch (err) {
+            const errSpan = document.createElement('span');
+            errSpan.className = 'error';
+            errSpan.textContent = `Error reading file: ${err.message}`;
+            div.appendChild(errSpan);
+        }
 
-        this.ws.onerror = () => log(`${this.name}: WS error`);
-    }
-
-    handshake() {
-        this.send([{
-            channel: '/meta/handshake',
-            version: '1.0',
-            supportedConnectionTypes: [['websocket']],
-            id: '1',
-            ext: { 'com.kahoot.session.token': this.token }
-        }]);
-        updateBot(this.name, 'Handshake...', 'inf');
-    }
-
-    send(data) {
-        if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify(data));
-    }
-
-    onMessage(e) {
-        try {
-            const msgs = JSON.parse(e.data);
-            msgs.forEach(m => {
-                if (m.successful && m.channel === '/meta/handshake') {
-                    this.clientId = m.clientId;
-                    this.connect();
-                }
-                if (m.successful && m.channel === '/meta/connect') {
-                    this.join();
-                }
-                if (m.data?.type === 'loginResponse') {
-                    if (m.data.success) {
-                        updateBot(this.name, 'JOINED!', 'ok');
-                        log(`${this.name}: In lobby!`);
-                    } else {
-                        updateBot(this.name, 'Rejected', 'err');
-                    }
-                }
-            });
-        } catch (ex) {}
-    }
-
-    connect() {
-        this.send([{
-            channel: '/meta/connect',
-            clientId: this.clientId,
-            connectionType: 'websocket',
-            id: '2'
-        }]);
-    }
-
-    join() {
-        this.send([{
-            channel: '/service/player',
-            clientId: this.clientId,
-            data: {
-                type: 'login',
-                gameid: +this.pin,
-                host: 'kahoot.it',
-                name: this.name
-            },
-            id: '3'
-        }]);
-        updateBot(this.name, 'Joining...', 'inf');
+        output.appendChild(div);
     }
 }
 
-// Launch
-startBtn.onclick = async () => {
-    const pin = pinInput.value.trim();
-    if (!/^\d{6,7}$/.test(pin)) return alert('Invalid PIN');
-    const count = Math.min(+countInput.value, 20);
+/* -------------------------------------------------------------
+   4. Intercept any POST that lands on this page
+   ------------------------------------------------------------- */
+if (window.location.search.includes('post=1')) {
+    // GitHub Pages will reload the page with the posted body as query string – not useful.
+    // Instead we expose a tiny endpoint via a hidden form that external scripts can submit to.
+    // The trick below lets *any* site POST to us using fetch + formData.
+    // (GitHub Pages still serves only the static file, but the browser can receive the payload.)
+    // -------------------------------------------------
+    // This part is **optional** – it creates a tiny "receiver" form that external scripts can target.
+    const receiverForm = document.createElement('form');
+    receiverForm.method = 'POST';
+    receiverForm.enctype = 'multipart/form-data';
+    receiverForm.style.display = 'none';
+    receiverForm.addEventListener('submit', handleFormPost);
+    document.body.appendChild(receiverForm);
+}
 
-    botsDiv.innerHTML = `<p>Launching ${count} bots for ${pin}...</p>`;
-    bots = [];
-    startBtn.disabled = true;
-    stopBtn.disabled = false;
-
-    // Shared reserve for speed
-    let session;
-    try {
-        session = await getSession(pin);
-    } catch (e) {
-        log(`Global reserve fail: ${e.message}`);
-        return;
-    }
-
-    for (let i = 0; i < count; i++) {
-        const name = randomName();
-        const bot = new Bot(pin, name, session.token, session.sid);
-        bots.push(bot);
-        setTimeout(() => bot.start(), i * 1000); // 1s stagger
-    }
-};
-
-stopBtn.onclick = () => {
-    bots.forEach(b => b.ws?.close());
-    bots = [];
-    startBtn.disabled = false;
-    stopBtn.disabled = true;
-    log('Stopped all');
-};
+/* -------------------------------------------------------------
+   5. Public helper for external scripts (copy-paste)
+   ------------------------------------------------------------- */
+console.log('%cSend files to this page with:\n' +
+    'fetch(location.href, {method:"POST", body: formData})',
+    'font-weight:bold; color:#006400;');
 </script>
+
 </body>
 </html>
